@@ -3,11 +3,12 @@ package main
 import (
 	"database/sql"
 	"errors"
-	"fmt"
+	// "fmt"
 	_ "github.com/mattn/go-sqlite3"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
 )
 
@@ -56,35 +57,19 @@ func main() {
 	}
 
 	// backend logic
-	http.HandleFunc("/", rootHandler)
-	http.HandleFunc("/login", loginHandler)
-	http.HandleFunc("/logout", logoutHandler)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", rootHandler)
+	mux.HandleFunc("/login", loginHandler)
+	mux.HandleFunc("/logout", logoutHandler)
+	mux.HandleFunc("/signup-page", signupPageHandler)
+	mux.HandleFunc("/signup", signupHandler)
 
 	log.Print("Listenting on: 4444...")
-	err = http.ListenAndServe(":4444", nil)
+	err = http.ListenAndServe(":4444", mux)
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func getUsers(db *sql.DB) []User {
-	var users []User
-	rows, err := db.Query("select * from users;")
-	if err != nil {
-		log.Println("cannot take row from db users", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var user User
-		err := rows.Scan(&user.id, &user.username, &user.password, &user.sessionid)
-		if err != nil {
-			log.Println(err)
-			break
-		}
-		users = append(users, user)
-	}
-	return users
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
@@ -94,63 +79,73 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Println(err)
+		log.Println("error while reading cookie: ", err)
 		http.ServeFile(w, r, "./static/index.html")
 		return
 	}
 	if checkSession(cookie.Value) {
-		http.ServeFile(w, r, "./static/home.html")
+		// fmt.Println("entered to serve home.html")
+		home, err := os.ReadFile("./static/home.html")
+		if err != nil {
+			log.Println("error while reading home.html: ", err)
+			http.Error(w, "error while reading home file", http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte(home))
 		return
+	} else {
+		http.ServeFile(w, r, "./static/index.html")
 	}
-	http.ServeFile(w, r, "./static/index.html")
 }
 
-func checkSession(sessionidStr string) bool {
-	var users []User
-	var ids []int
-	fmt.Println("ids: ", ids)
-	id, err := strconv.Atoi(sessionidStr)
+func signupPageHandler(w http.ResponseWriter, r *http.Request) {
+	// Disable caching for dynamic content
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	http.ServeFile(w, r, "./static/signup.html")
+}
+
+func signupHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	user.username, user.password = r.FormValue("username"), r.FormValue("password")
+
+	query := "insert into users (username, password) values (?, ?);"
+	_, err := db.Exec(query, user.username, user.password)
 	if err != nil {
-		log.Println("unable to convert sessionid to int to check whether sessionid exists in db.", err)
-		return false
-	}
-	fmt.Printf("cookie sessionid: %d\n", id)
-	users = getUsers(db)
-
-	for _, user := range users {
-		ids = append(ids, user.sessionid)
+		log.Println("error while inserting values: ", err)
 	}
 
-	for i := 0; i < len(ids); i++ {
-		fmt.Printf("id == ids[%d]; %d == %d\n", i, id, ids[i])
-		if id == ids[i] {
-			return true
-		}
-	}
-
-	return false
+	sessionid := createRandomSessionId()
+	user = getUser(user.username)
+	saveSessionId(user, sessionid)
+	writeCookie(w, sessionid)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
+	// Disable caching for dynamic content
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	//login handler logic
 	var users = getUsers(db)
-	fmt.Println(users)
+	// fmt.Println(users)
 	var sessionid int
 	var rUser, rPassword string = r.FormValue("username"), r.FormValue("password")
-	fmt.Printf("ruser: %s, rpw:  %s\n", rUser, rPassword)
+	// fmt.Printf("ruser: %s, rpw:  %s\n", rUser, rPassword)
 	var flag bool
 	for _, user := range users {
 		if rUser == user.username && rPassword == user.password {
 			flag = true
-			sessionid = rand.Intn(9000) + 1000
-			query := "update users set sessionid = ? where id = ?;"
-			_, err := db.Exec(query, sessionid, user.id)
-			if err != nil {
-				log.Printf("unable to update sessionid: %d for id: %d\n%v", sessionid, user.id, err)
-			}
+			sessionid = createRandomSessionId()
+			saveSessionId(user, sessionid)
 		} else if rUser == user.username && rPassword != user.password {
 			http.Error(w, "entered incorrect password", http.StatusBadRequest)
 		}
 	}
+	// fmt.Printf("flag: %t \n", flag)
 	if flag {
 		writeCookie(w, sessionid)
 	}
@@ -159,15 +154,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	cookie, err := readCookie(r, "sessionid")
+	if cookie == nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	if err == ErrInvalidValue {
 		http.Error(w, "cookie has been alterned/changed without permission.", http.StatusBadRequest)
-		return
-	} else if err == ErrCookieAlreadyExists {
-		log.Println("Cookie already exists... updating cookie maxage.")
 	}
-	cookie.Value = "false"
 	cookie.MaxAge = -1
 	http.SetCookie(w, cookie)
+	log.Println("set cookie to delete: ", cookie)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -205,4 +201,72 @@ func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 		return nil, err
 	}
 	return cookie, nil
+}
+
+func getUsers(db *sql.DB) []User {
+	var users []User
+	rows, err := db.Query("select * from users;")
+	if err != nil {
+		log.Println("cannot take row from db users", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var user User
+		err := rows.Scan(&user.id, &user.username, &user.password, &user.sessionid)
+		if err != nil {
+			log.Println(err)
+			break
+		}
+		users = append(users, user)
+	}
+	return users
+}
+
+func checkSession(sessionidStr string) bool {
+	var users []User
+	var ids []int
+	var check bool
+	// fmt.Println("ids: ", ids)
+	id, err := strconv.Atoi(sessionidStr)
+	if err != nil {
+		log.Println("unable to convert sessionid to int to check whether sessionid exists in db.", err)
+		return check
+	}
+	// fmt.Printf("cookie sessionid: %d\n", id)
+	users = getUsers(db)
+
+	for _, user := range users {
+		ids = append(ids, user.sessionid)
+	}
+
+	for i := 0; i < len(ids); i++ {
+		if id == ids[i] {
+			check = true
+		}
+	}
+
+	// fmt.Printf("checkSession bool: %t\n", check)
+	return check
+}
+
+func createRandomSessionId() int {
+	return rand.Intn(9000) + 1000
+}
+
+func saveSessionId(user User, sessionid int) {
+
+	query := "update users set sessionid = ? where id = ?;"
+	_, err := db.Exec(query, sessionid, user.id)
+	if err != nil {
+		log.Printf("unable to update sessionid: %d for id: %d\n%v", sessionid, user.id, err)
+	}
+}
+
+func getUser(username string) User {
+	var user User
+	query := "select * from users where username = ?;"
+	row := db.QueryRow(query, username)
+	row.Scan(&user.id, &user.username, &user.password, &user.sessionid)
+	return user
 }
