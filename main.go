@@ -3,15 +3,17 @@ package main
 import (
 	"database/sql"
 	"errors"
-	// "fmt"
+	"fmt"
+	"time"
+	// "github.com/amankhys/login-page-go/crypt"
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
-	"strconv"
 )
 
+// setting global variables to be used
 var (
 	ErrValueTooLong        = errors.New("cookie value too long")
 	ErrInvalidValue        = errors.New("cookie value is invalid")
@@ -24,7 +26,7 @@ type User struct {
 	id        int
 	username  string
 	password  string
-	sessionid int
+	sessionID string
 }
 
 func init() {
@@ -45,19 +47,8 @@ func init() {
 func main() {
 	// db logic
 	defer db.Close()
-	row := db.QueryRow("select * from users;")
-
-	var id, sessionid int
-	var username, password string
-	err := row.Scan(&id, &username, &password, &sessionid)
-	if err != nil {
-		log.Println(err)
-	} else {
-		log.Printf("Id: %d, Username: %s, Password: %s, SessionID: %d\n", id, username, password, sessionid)
-	}
 
 	// backend logic
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", rootHandler)
 	mux.HandleFunc("/login", loginHandler)
@@ -66,14 +57,18 @@ func main() {
 	mux.HandleFunc("/signup", signupHandler)
 
 	log.Print("Listenting on: 4444...")
-	err = http.ListenAndServe(":4444", mux)
+	err := http.ListenAndServe(":4444", mux)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
-	cookie, err := readCookie(r, "sessionid")
+	// Disable caching for dynamic content
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	cookie, err := readCookie(r, "sessionID")
 	if cookie == nil {
 		http.ServeFile(w, r, "./static/index.html")
 		return
@@ -84,7 +79,6 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if checkSession(cookie.Value) {
-		// fmt.Println("entered to serve home.html")
 		home, err := os.ReadFile("./static/home.html")
 		if err != nil {
 			log.Println("error while reading home.html: ", err)
@@ -98,12 +92,42 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func signupPageHandler(w http.ResponseWriter, r *http.Request) {
+func loginHandler(w http.ResponseWriter, r *http.Request) {
 	// Disable caching for dynamic content
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
-	http.ServeFile(w, r, "./static/signup.html")
+
+	//login handler logic
+	var users = getUsers(db)
+	var sessionID string
+	var rUser, rPassword string = r.FormValue("username"), r.FormValue("password")
+	var flag bool
+	for _, user := range users {
+		if rUser == user.username && rPassword == user.password {
+			flag = true
+			sessionID = getCustomID()
+			saveSessionId(user, sessionID)
+		} else if rUser == user.username && rPassword != user.password {
+			http.Error(w, "entered incorrect password", http.StatusBadRequest)
+		}
+	}
+
+	if flag {
+		writeCookie(w, sessionID)
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func logoutHandler(w http.ResponseWriter, r *http.Request) {
+	cookie, err := readCookie(r, "sessionID")
+	if err == ErrInvalidValue {
+		http.Error(w, "cookie has been alterned/changed without permission.", http.StatusBadRequest)
+	}
+	cookie.MaxAge = -1
+	http.SetCookie(w, cookie)
+	log.Println("deleted cookie:", cookie)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func signupHandler(w http.ResponseWriter, r *http.Request) {
@@ -116,91 +140,51 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("error while inserting values: ", err)
 	}
 
-	sessionid := createRandomSessionId()
+	sessionID := getCustomID()
 	user = getUser(user.username)
-	saveSessionId(user, sessionid)
-	writeCookie(w, sessionid)
+	saveSessionId(user, sessionID)
+	writeCookie(w, sessionID)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func loginHandler(w http.ResponseWriter, r *http.Request) {
+func signupPageHandler(w http.ResponseWriter, r *http.Request) {
 	// Disable caching for dynamic content
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
+	cookie, err := readCookie(r, "sessionID")
+	if err != nil {
+		log.Println(err)
+	}
+	if cookie != nil {
+		cookie.MaxAge = -1
+		http.SetCookie(w, cookie)
+	}
 
-	//login handler logic
-	var users = getUsers(db)
-	// fmt.Println(users)
-	var sessionid int
-	var rUser, rPassword string = r.FormValue("username"), r.FormValue("password")
-	// fmt.Printf("ruser: %s, rpw:  %s\n", rUser, rPassword)
-	var flag bool
+	http.ServeFile(w, r, "./static/signup.html")
+}
+
+func checkSession(sessionID string) bool {
+	var users []User
+	var ids []string
+	var check bool
+	users = getUsers(db)
+
 	for _, user := range users {
-		if rUser == user.username && rPassword == user.password {
-			flag = true
-			sessionid = createRandomSessionId()
-			saveSessionId(user, sessionid)
-		} else if rUser == user.username && rPassword != user.password {
-			http.Error(w, "entered incorrect password", http.StatusBadRequest)
+		ids = append(ids, user.sessionID)
+	}
+	for i := 0; i < len(ids); i++ {
+		if sessionID == ids[i] {
+			check = true
 		}
 	}
-	// fmt.Printf("flag: %t \n", flag)
-	if flag {
-		writeCookie(w, sessionid)
-	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	return check
 }
 
-func logoutHandler(w http.ResponseWriter, r *http.Request) {
-	cookie, err := readCookie(r, "sessionid")
-	if cookie == nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	if err == ErrInvalidValue {
-		http.Error(w, "cookie has been alterned/changed without permission.", http.StatusBadRequest)
-	}
-	cookie.MaxAge = -1
-	http.SetCookie(w, cookie)
-	log.Println("set cookie to delete: ", cookie)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func writeCookie(w http.ResponseWriter, sessionid int) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "sessionid",
-		Value:    strconv.Itoa(sessionid),
-		Path:     "/",
-		MaxAge:   3600,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-	})
-}
-
-func readCookie(r *http.Request, name string) (*http.Cookie, error) {
-	// read the cookie as normal
-	cookie, err := r.Cookie(name)
-	if err != nil {
-		log.Println("unabel to read the cookie.")
-		return nil, http.ErrNoCookie
-	}
-	value, err := strconv.Atoi(cookie.Value)
-	if err != nil {
-		log.Println("failed to convert from string to integer of the sessionid field from request cookie.")
-	}
-
-	if cookie == nil {
-		return nil, errors.New("cookie dose not exist")
-	} else if value < 1000 && value > 9999 {
-		return nil, ErrInvalidValue
-	} else if cookie.MaxAge > 0 {
-		return nil, ErrCookieAlreadyExists
-	} else if err != nil {
-		return nil, err
-	}
-	return cookie, nil
+func getCustomID() string {
+	currentTime := time.Now().UnixNano()
+	uniqueID := uuid.New()
+	return fmt.Sprintf("%d-%s", currentTime, uniqueID)
 }
 
 func getUsers(db *sql.DB) []User {
@@ -213,7 +197,7 @@ func getUsers(db *sql.DB) []User {
 
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.id, &user.username, &user.password, &user.sessionid)
+		err := rows.Scan(&user.id, &user.username, &user.password, &user.sessionID)
 		if err != nil {
 			log.Println(err)
 			break
@@ -223,43 +207,11 @@ func getUsers(db *sql.DB) []User {
 	return users
 }
 
-func checkSession(sessionidStr string) bool {
-	var users []User
-	var ids []int
-	var check bool
-	// fmt.Println("ids: ", ids)
-	id, err := strconv.Atoi(sessionidStr)
+func saveSessionId(user User, sessionID string) {
+	query := "update users set sessionID = ? where id = ?;"
+	_, err := db.Exec(query, sessionID, user.id)
 	if err != nil {
-		log.Println("unable to convert sessionid to int to check whether sessionid exists in db.", err)
-		return check
-	}
-	// fmt.Printf("cookie sessionid: %d\n", id)
-	users = getUsers(db)
-
-	for _, user := range users {
-		ids = append(ids, user.sessionid)
-	}
-
-	for i := 0; i < len(ids); i++ {
-		if id == ids[i] {
-			check = true
-		}
-	}
-
-	// fmt.Printf("checkSession bool: %t\n", check)
-	return check
-}
-
-func createRandomSessionId() int {
-	return rand.Intn(9000) + 1000
-}
-
-func saveSessionId(user User, sessionid int) {
-
-	query := "update users set sessionid = ? where id = ?;"
-	_, err := db.Exec(query, sessionid, user.id)
-	if err != nil {
-		log.Printf("unable to update sessionid: %d for id: %d\n%v", sessionid, user.id, err)
+		log.Printf("unable to update sessionID: %s for id: %d\n%v", sessionID, user.id, err)
 	}
 }
 
@@ -267,6 +219,34 @@ func getUser(username string) User {
 	var user User
 	query := "select * from users where username = ?;"
 	row := db.QueryRow(query, username)
-	row.Scan(&user.id, &user.username, &user.password, &user.sessionid)
+	row.Scan(&user.id, &user.username, &user.password, &user.sessionID)
 	return user
+}
+
+func writeCookie(w http.ResponseWriter, sessionID string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sessionID",
+		Value:    sessionID,
+		Path:     "/",
+		MaxAge:   3600,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func readCookie(r *http.Request, name string) (*http.Cookie, error) {
+	cookie, err := r.Cookie(name)
+
+	if cookie == nil {
+		log.Println("cookie does not exist.")
+		return nil, http.ErrNoCookie
+	} else if len(cookie.Value) != 56 {
+		log.Println("invalid cookie value.")
+		return nil, ErrInvalidValue
+	} else if err != nil {
+		log.Println("unable to read the cookie.")
+		return nil, err
+	}
+	return cookie, nil
 }
