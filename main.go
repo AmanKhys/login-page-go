@@ -90,6 +90,8 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "error while reading home file", http.StatusInternalServerError)
 			return
 		}
+		user := getUserBySessionID(cookie.Value)
+		log.Printf("successfully served home page for user: %v\n", user.username)
 		w.Write([]byte(home))
 		return
 	} else {
@@ -205,6 +207,14 @@ func getUser(username string) User {
 	var user User
 	query := "select * from users where username = ?;"
 	row := db.QueryRow(query, username)
+	row.Scan(&user.id, &user.username, &user.password, &user.sessionID)
+	return user
+}
+
+func getUserBySessionID(sessionID string) User {
+	var user User
+	query := "select * from users where sessionid = ?;"
+	row := db.QueryRow(query, sessionID)
 	row.Scan(&user.id, &user.username, &user.password, &user.sessionID)
 	return user
 }
