@@ -69,10 +69,16 @@ func main() {
 // Handler functions
 // ////////////////////
 func rootHandler(w http.ResponseWriter, r *http.Request) {
+	// Ignore favicon requests
+	if r.URL.Path == "/favicon.ico" {
+		return
+	}
+
 	// Disable caching for dynamic content
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
+
 	cookie, err := readCookie(r, "sessionID")
 	if cookie == nil {
 		http.ServeFile(w, r, "./static/index.html")
