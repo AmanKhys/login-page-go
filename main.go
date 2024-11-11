@@ -22,6 +22,7 @@ var (
 	db *sql.DB
 )
 
+// user modal to take and send data to users table
 type User struct {
 	id        int
 	username  string
@@ -29,6 +30,7 @@ type User struct {
 	sessionID string
 }
 
+// init function to establish db connection
 func init() {
 	var err error
 	log.Println("entering init()")
@@ -63,6 +65,9 @@ func main() {
 	}
 }
 
+// ////////////////////
+// Handler functions
+// ////////////////////
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	// Disable caching for dynamic content
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
@@ -132,8 +137,16 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
+	var users []User
 	user.username, user.password = r.FormValue("username"), r.FormValue("password")
 
+	users = getUsers(db)
+	for _, v := range users {
+		if v.username == user.username {
+			str := fmt.Sprintf("User already exists. You can't Sign up as the user: %v\n", user.username)
+			http.Error(w, str, http.StatusBadRequest)
+		}
+	}
 	query := "insert into users (username, password) values (?, ?);"
 	_, err := db.Exec(query, user.username, user.password)
 	if err != nil {
@@ -164,28 +177,9 @@ func signupPageHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./static/signup.html")
 }
 
-func checkSession(sessionID string) bool {
-	var users []User
-	var ids []string
-	var check bool
-	users = getUsers(db)
-
-	for _, user := range users {
-		ids = append(ids, user.sessionID)
-	}
-	for i := 0; i < len(ids); i++ {
-		if sessionID == ids[i] {
-			check = true
-		}
-	}
-	return check
-}
-
-func getCustomID() string {
-	currentTime := time.Now().UnixNano()
-	uniqueID := uuid.New()
-	return fmt.Sprintf("%d-%s", currentTime, uniqueID)
-}
+// //////////////
+// db functions
+// //////////////
 
 func getUsers(db *sql.DB) []User {
 	var users []User
@@ -207,14 +201,6 @@ func getUsers(db *sql.DB) []User {
 	return users
 }
 
-func saveSessionId(user User, sessionID string) {
-	query := "update users set sessionID = ? where id = ?;"
-	_, err := db.Exec(query, sessionID, user.id)
-	if err != nil {
-		log.Printf("unable to update sessionID: %s for id: %d\n%v", sessionID, user.id, err)
-	}
-}
-
 func getUser(username string) User {
 	var user User
 	query := "select * from users where username = ?;"
@@ -223,6 +209,38 @@ func getUser(username string) User {
 	return user
 }
 
+// //////////////////
+// Session functions
+// //////////////////
+
+// sessionID authenticating function
+func checkSession(sessionID string) bool {
+	var users []User
+	var ids []string
+	var check bool
+	users = getUsers(db)
+
+	for _, user := range users {
+		ids = append(ids, user.sessionID)
+	}
+	for i := 0; i < len(ids); i++ {
+		if sessionID == ids[i] {
+			check = true
+		}
+	}
+	return check
+}
+
+// save sessionID to database after being created on login/signup
+func saveSessionId(user User, sessionID string) {
+	query := "update users set sessionID = ? where id = ?;"
+	_, err := db.Exec(query, sessionID, user.id)
+	if err != nil {
+		log.Printf("unable to update sessionID: %s for id: %d\n%v", sessionID, user.id, err)
+	}
+}
+
+// Write sessionID cookie function
 func writeCookie(w http.ResponseWriter, sessionID string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "sessionID",
@@ -235,6 +253,7 @@ func writeCookie(w http.ResponseWriter, sessionID string) {
 	})
 }
 
+// Reead sessionID cookie function
 func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 	cookie, err := r.Cookie(name)
 
@@ -249,4 +268,11 @@ func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 		return nil, err
 	}
 	return cookie, nil
+}
+
+// Random SessionID generator
+func getCustomID() string {
+	currentTime := time.Now().UnixNano()
+	uniqueID := uuid.New()
+	return fmt.Sprintf("%d-%s", currentTime, uniqueID)
 }
