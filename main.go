@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -123,14 +124,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	//login handler logic
 	var users = getUsers(db)
 	var sessionID string
-	var rUser, rPassword string = r.FormValue("username"), r.FormValue("password")
+	var rUser User
+	rUser.username, rUser.password = r.FormValue("username"), r.FormValue("password")
+	rUser.username = strings.ToLower(rUser.username)
 	var flag bool
 	for _, user := range users {
-		if rUser == user.username && rPassword == user.password {
+		if rUser.username == user.username && rUser.password == user.password {
 			flag = true
 			sessionID = getCustomID()
 			saveSessionId(user, sessionID)
-		} else if rUser == user.username && rPassword != user.password {
+		} else if rUser.password == user.username && rUser.password != user.password {
 			http.Error(w, "entered incorrect password", http.StatusBadRequest)
 		}
 	}
@@ -160,6 +163,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
 	var users []User
 	user.username, user.password = r.FormValue("username"), r.FormValue("password")
+	//  make the entered username as case-insensitive
+	user.username = strings.ToLower(user.username)
 
 	users = getUsers(db)
 	for _, v := range users {
