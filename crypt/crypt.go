@@ -7,13 +7,13 @@ import (
 )
 
 // a byteString of length 16 to modify the algorithm to encrypt and decrypt.(must be of length 16)
-var bytesString string = "hellohellohello!"
-var bytes = decode(bytesString)
+var bytesString string = "hellohellohello+"
+var bytes []byte = []byte(bytesString)
 
 // secretkey can be 16, 24, or 32 of size. to implement differnt kinds of aes algorithms
 // currently using a 16 byte string
-var secretKeyString string = "thisisthesecret!"
-var secretKey []byte = decode(secretKeyString)
+var secretKeyString string = "thisisthesecret+"
+var secretKey []byte = []byte(secretKeyString)
 
 func encode(b []byte) string {
 	return hex.EncodeToString(b)
@@ -48,5 +48,5 @@ func Decrypt(text string) (string, error) {
 	cfb := cipher.NewCFBDecrypter(block, bytes)
 	plainText := make([]byte, len(cipherText))
 	cfb.XORKeyStream(plainText, cipherText)
-	return encode(plainText), nil
+	return string(plainText), nil
 }

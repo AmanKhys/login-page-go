@@ -4,17 +4,19 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
-	// "github.com/amankhys/login-page-go/crypt"
+	"github.com/amankhys/login-page-go/crypt"
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 // setting global variables to be used
 var (
+	sessionIDLength = 56
+
 	ErrValueTooLong        = errors.New("cookie value too long")
 	ErrInvalidValue        = errors.New("cookie value is invalid")
 	ErrCookieAlreadyExists = errors.New("cookie already exists.")
@@ -89,7 +91,14 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/index.html")
 		return
 	}
-	if checkSession(cookie.Value) {
+	value, err := crypt.Decrypt(cookie.Value)
+	if err != nil {
+		log.Printf("%v", fmt.Errorf("error while decrypting value from cookie.Value: %w", err))
+		http.ServeFile(w, r, "./static/index.html")
+		return
+	}
+	fmt.Println("cookie value decrpted from /: ", value)
+	if checkSession(value) {
 		home, err := os.ReadFile("./static/home.html")
 		if err != nil {
 			log.Println("error while reading home.html: ", err)
@@ -127,7 +136,11 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if flag {
-		writeCookie(w, sessionID)
+		encryptedID, err := crypt.Encrypt(sessionID)
+		if err != nil {
+			fmt.Println("error while encrypting sessionID to send as cookie.Value:", err)
+		}
+		writeCookie(w, encryptedID)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -164,7 +177,13 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 	sessionID := getCustomID()
 	user = getUser(user.username)
 	saveSessionId(user, sessionID)
-	writeCookie(w, sessionID)
+	cryptedID, err := crypt.Encrypt(sessionID)
+	if err != nil {
+		log.Println("error while converting sessionID to encryptedID to write on cookie in sign-up.", err)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	writeCookie(w, cryptedID)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -250,8 +269,13 @@ func checkSession(sessionID string) bool {
 // save sessionID to database after being created on login/signup
 func saveSessionId(user User, sessionID string) {
 	query := "update users set sessionID = ? where id = ?;"
-	_, err := db.Exec(query, sessionID, user.id)
-	if err != nil {
+	result, err := db.Exec(query, sessionID, user.id)
+	k, errRows := result.RowsAffected()
+	if errRows != nil {
+		log.Printf("error while taking number of rows affected: %v\n", err)
+		return
+	}
+	if err != nil || k != 1 {
 		log.Printf("unable to update sessionID: %s for id: %d\n%v", sessionID, user.id, err)
 	}
 }
@@ -276,10 +300,14 @@ func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 	if cookie == nil {
 		log.Println("cookie does not exist.")
 		return nil, http.ErrNoCookie
-	} else if len(cookie.Value) != 56 {
-		log.Println("invalid cookie value.")
+	}
+
+	// sessionID length is checked for 2 times it since it has been decoded to hex format before sending
+	if len(cookie.Value) != sessionIDLength*2 {
+		log.Printf("invalid cookie value.\n")
 		return nil, ErrInvalidValue
-	} else if err != nil {
+	}
+	if err != nil {
 		log.Println("unable to read the cookie.")
 		return nil, err
 	}
