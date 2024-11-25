@@ -23,16 +23,18 @@
         <div class="card shadow">
           <div class="card-body p-4">
             <h3 class="text-center mb-4">Sign Up</h3>
-            <form action="/signup" method="post">
+            <form action="/signup" method="post" onsubmit="return validateForm()">
               <div class="mb-3">
-                <label for="email" class="form-label">Username</label>
+                <label for="username" class="form-label">Username</label>
                 <input type="text" class="form-control" id="username" placeholder="Enter your username" name="username"
                   required>
+                <div class="invalid-feedback" id="username-feedback"></div>
               </div>
               <div class="mb-3">
                 <label for="password" class="form-label">Password</label>
                 <input type="password" class="form-control" id="password" placeholder="Enter your password"
                   name="password" required>
+                <div class="invalid-feedback" id="password-feedback"></div>
               </div>
               <div class="d-grid">
                 <button type="submit" class="btn btn-primary">Sign Up</button>
@@ -43,6 +45,36 @@
       </div>
     </div>
   </div>
+
+  <script>
+    function validateForm() {
+      let isValid = true;
+      const username = document.getElementById('username');
+      const password = document.getElementById('password');
+      const usernameFeedback = document.getElementById('username-feedback');
+      const passwordFeedback = document.getElementById('password-feedback');
+
+      // Reset previous validation states
+      username.classList.remove('is-invalid');
+      password.classList.remove('is-invalid');
+
+      // Username validation
+      if (username.value.length < 3) {
+        username.classList.add('is-invalid');
+        usernameFeedback.textContent = 'Username must be at least 3 characters long';
+        isValid = false;
+      }
+
+      // Password validation
+      if (password.value.length < 6) {
+        password.classList.add('is-invalid');
+        passwordFeedback.textContent = 'Password must be at least 6 characters long';
+        isValid = false;
+      }
+
+      return isValid;
+    }
+  </script>
 </body>
 
 </html>

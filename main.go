@@ -7,6 +7,7 @@ import (
 	"github.com/amankhys/login-page-go/crypt"
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -16,7 +17,7 @@ import (
 
 // setting global variables to be used
 var (
-	sessionIDLength = 56
+	SessionIDLength = 56
 
 	ErrValueTooLong        = errors.New("cookie value too long")
 	ErrInvalidValue        = errors.New("cookie value is invalid")
@@ -27,10 +28,10 @@ var (
 
 // user modal to take and send data to users table
 type User struct {
-	id        int
-	username  string
-	password  string
-	sessionID string
+	ID        int
+	Username  string
+	Password  string
+	SessionID string
 }
 
 // init function to establish db connection
@@ -58,6 +59,7 @@ func main() {
 	mux.HandleFunc("/", rootHandler)
 	mux.HandleFunc("/login", loginHandler)
 	mux.HandleFunc("/logout", logoutHandler)
+	mux.HandleFunc("/admin", adminHandler)
 	mux.HandleFunc("/signup-page", signupPageHandler)
 	mux.HandleFunc("/signup", signupHandler)
 
@@ -71,7 +73,7 @@ func main() {
 // ////////////////////
 // Handler functions
 // ////////////////////
-func rootHandler(w http.ResponseWriter, r *http.Request) {
+func adminHandler(w http.ResponseWriter, r *http.Request) {
 	// Ignore favicon requests
 	if r.URL.Path == "/favicon.ico" {
 		return
@@ -82,7 +84,23 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
-	cookie, err := readCookie(r, "sessionID")
+	users := getUsers(db)
+	data := struct {
+		Users []User
+	}{
+		Users: users,
+	}
+
+	tmpl := template.Must(template.ParseFiles("./static/admin.html"))
+	tmpl.Execute(w, data)
+}
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	// Disable caching for dynamic content
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
+	cookie, err := readCookie(r, "SessionID")
 	if cookie == nil {
 		http.ServeFile(w, r, "./static/index.html")
 		return
@@ -93,6 +111,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	value, err := crypt.Decrypt(cookie.Value)
+	fmt.Printf("cookie sessionID: %s ", value)
 	if err != nil {
 		log.Printf("%v", fmt.Errorf("error while decrypting value from cookie.Value: %w", err))
 		http.ServeFile(w, r, "./static/index.html")
@@ -100,6 +119,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Println("cookie value decrpted from /: ", value)
 	if checkSession(value) {
+		fmt.Println("check session_id from db: session is valid ")
 		home, err := os.ReadFile("./static/home.html")
 		if err != nil {
 			log.Println("error while reading home.html: ", err)
@@ -107,10 +127,11 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		user := getUserBySessionID(cookie.Value)
-		log.Printf("successfully served home page for user: %v\n", user.username)
+		log.Printf("successfully served home page for user: %v\n", user.Username)
 		w.Write([]byte(home))
 		return
 	} else {
+		fmt.Println("sessionid is not in  db.")
 		http.ServeFile(w, r, "./static/index.html")
 	}
 }
@@ -123,25 +144,26 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	//login handler logic
 	var users = getUsers(db)
-	var sessionID string
+	var SessionID string
 	var rUser User
-	rUser.username, rUser.password = r.FormValue("username"), r.FormValue("password")
-	rUser.username = strings.ToLower(rUser.username)
+	rUser.Username, rUser.Password = r.FormValue("username"), r.FormValue("password")
+	rUser.Username = strings.ToLower(rUser.Username)
 	var flag bool
 	for _, user := range users {
-		if rUser.username == user.username && rUser.password == user.password {
+		fmt.Printf("user: %s pw: %s sid: %s\n", user.Username, user.Password, user.SessionID)
+		if rUser.Username == user.Username && rUser.Password == user.Password {
 			flag = true
-			sessionID = getCustomID()
-			saveSessionId(user, sessionID)
-		} else if rUser.password == user.username && rUser.password != user.password {
+			SessionID = getCustomID()
+			saveSessionId(user, SessionID)
+		} else if rUser.Username == user.Username && rUser.Password != user.Password {
 			http.Error(w, "entered incorrect password", http.StatusBadRequest)
 		}
 	}
 
 	if flag {
-		encryptedID, err := crypt.Encrypt(sessionID)
+		encryptedID, err := crypt.Encrypt(SessionID)
 		if err != nil {
-			fmt.Println("error while encrypting sessionID to send as cookie.Value:", err)
+			fmt.Println("error while encrypting SessionID to send as cookie.Value:", err)
 		}
 		writeCookie(w, encryptedID)
 	}
@@ -149,7 +171,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
-	cookie, err := readCookie(r, "sessionID")
+	cookie, err := readCookie(r, "SessionID")
 	if err == ErrInvalidValue {
 		http.Error(w, "cookie has been alterned/changed without permission.", http.StatusBadRequest)
 	}
@@ -162,29 +184,29 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
 	var users []User
-	user.username, user.password = r.FormValue("username"), r.FormValue("password")
-	//  make the entered username as case-insensitive
-	user.username = strings.ToLower(user.username)
+	user.Username, user.Password = r.FormValue("username"), r.FormValue("password")
+	//  make the entered Username as case-insensitive
+	user.Username = strings.ToLower(user.Username)
 
 	users = getUsers(db)
 	for _, v := range users {
-		if v.username == user.username {
-			str := fmt.Sprintf("User already exists. You can't Sign up as the user: %v\n", user.username)
+		if v.Username == user.Username {
+			str := fmt.Sprintf("User already exists. You can't Sign up as the user: %v\n", user.Username)
 			http.Error(w, str, http.StatusBadRequest)
 		}
 	}
 	query := "insert into users (username, password) values (?, ?);"
-	_, err := db.Exec(query, user.username, user.password)
+	_, err := db.Exec(query, user.Username, user.Password)
 	if err != nil {
 		log.Println("error while inserting values: ", err)
 	}
 
-	sessionID := getCustomID()
-	user = getUser(user.username)
-	saveSessionId(user, sessionID)
-	cryptedID, err := crypt.Encrypt(sessionID)
+	SessionID := getCustomID()
+	user = getUser(user.Username)
+	saveSessionId(user, SessionID)
+	cryptedID, err := crypt.Encrypt(SessionID)
 	if err != nil {
-		log.Println("error while converting sessionID to encryptedID to write on cookie in sign-up.", err)
+		log.Println("error while converting SessionID to encryptedID to write on cookie in sign-up.", err)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
@@ -197,7 +219,7 @@ func signupPageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
-	cookie, err := readCookie(r, "sessionID")
+	cookie, err := readCookie(r, "SessionID")
 	if err != nil {
 		log.Println(err)
 	}
@@ -223,7 +245,7 @@ func getUsers(db *sql.DB) []User {
 
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.id, &user.username, &user.password, &user.sessionID)
+		err := rows.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID)
 		if err != nil {
 			log.Println(err)
 			break
@@ -237,15 +259,15 @@ func getUser(username string) User {
 	var user User
 	query := "select * from users where username = ?;"
 	row := db.QueryRow(query, username)
-	row.Scan(&user.id, &user.username, &user.password, &user.sessionID)
+	row.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID)
 	return user
 }
 
-func getUserBySessionID(sessionID string) User {
+func getUserBySessionID(SessionID string) User {
 	var user User
-	query := "select * from users where sessionid = ?;"
-	row := db.QueryRow(query, sessionID)
-	row.Scan(&user.id, &user.username, &user.password, &user.sessionID)
+	query := "select * from users where session_id = ?;"
+	row := db.QueryRow(query, SessionID)
+	row.Scan(&user, &user.Username, &user.Password, &user.SessionID)
 	return user
 }
 
@@ -253,43 +275,46 @@ func getUserBySessionID(sessionID string) User {
 // Session functions
 // //////////////////
 
-// sessionID authenticating function
-func checkSession(sessionID string) bool {
+// SessionID authenticating function
+func checkSession(SessionID string) bool {
 	var users []User
 	var ids []string
 	var check bool
 	users = getUsers(db)
 
 	for _, user := range users {
-		ids = append(ids, user.sessionID)
+		ids = append(ids, user.SessionID)
 	}
 	for i := 0; i < len(ids); i++ {
-		if sessionID == ids[i] {
+		if SessionID == ids[i] {
 			check = true
 		}
 	}
 	return check
 }
 
-// save sessionID to database after being created on login/signup
-func saveSessionId(user User, sessionID string) {
-	query := "update users set sessionID = ? where id = ?;"
-	result, err := db.Exec(query, sessionID, user.id)
+// save SessionID to database after being created on login/signup
+func saveSessionId(user User, SessionID string) {
+	query := "update users set session_id = ? where username = ?;"
+	result, err := db.Exec(query, SessionID, user.Username)
 	k, errRows := result.RowsAffected()
 	if errRows != nil {
 		log.Printf("error while taking number of rows affected: %v\n", err)
 		return
 	}
-	if err != nil || k != 1 {
-		log.Printf("unable to update sessionID: %s for id: %d\n%v", sessionID, user.id, err)
+	if err != nil {
+		log.Printf("unable to update SessionID: %s for id: %d\n%v\n", SessionID, user.ID, err)
+	}
+	if k != 1 {
+		log.Println("db error: more than 1 rows affected while updating session_id;")
 	}
 }
 
-// Write sessionID cookie function
-func writeCookie(w http.ResponseWriter, sessionID string) {
+// Write SessionID cookie function
+func writeCookie(w http.ResponseWriter, SessionID string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     "sessionID",
-		Value:    sessionID,
+		Name:     "SessionID",
+		Value:    SessionID,
 		Path:     "/",
 		MaxAge:   3600,
 		HttpOnly: true,
@@ -298,7 +323,7 @@ func writeCookie(w http.ResponseWriter, sessionID string) {
 	})
 }
 
-// Reead sessionID cookie function
+// Reead SessionID cookie function
 func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 	cookie, err := r.Cookie(name)
 
@@ -307,8 +332,8 @@ func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 		return nil, http.ErrNoCookie
 	}
 
-	// sessionID length is checked for 2 times it since it has been decoded to hex format before sending
-	if len(cookie.Value) != sessionIDLength*2 {
+	// SessionID length is checked for 2 times it since it has been decoded to hex format before sending
+	if len(cookie.Value) != SessionIDLength*2 {
 		log.Printf("invalid cookie value.\n")
 		return nil, ErrInvalidValue
 	}

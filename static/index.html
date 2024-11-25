@@ -25,14 +25,16 @@
             <h3 class="text-center mb-4">Login</h3>
             <form action="/login" method="post">
               <div class="mb-3">
-                <label for="email" class="form-label">Username</label>
+                <label for="username" class="form-label">Username</label>
                 <input type="text" class="form-control" id="username" placeholder="Enter your username" name="username"
                   required>
+                <div class="invalid-feedback">Username must be at least 3 characters</div>
               </div>
               <div class="mb-3">
                 <label for="password" class="form-label">Password</label>
                 <input type="password" class="form-control" id="password" placeholder="Enter your password"
                   name="password" required>
+                <div class="invalid-feedback">Password must be at least 6 characters</div>
               </div>
               <div class="d-grid">
                 <button type="submit" class="btn btn-primary">Login</button>
@@ -43,6 +45,39 @@
       </div>
     </div>
   </div>
+
+  <script>
+    document.querySelector('form').addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      const username = document.getElementById('username');
+      const password = document.getElementById('password');
+      let isValid = true;
+
+      // Username validation - minimum 3 characters
+      if (username.value.trim().length < 3) {
+        username.classList.add('is-invalid');
+        isValid = false;
+      } else {
+        username.classList.remove('is-invalid');
+        username.classList.add('is-valid');
+      }
+
+      // Password validation - minimum 6 characters
+      if (password.value.length < 6) {
+        password.classList.add('is-invalid');
+        isValid = false;
+      } else {
+        password.classList.remove('is-invalid');
+        password.classList.add('is-valid');
+      }
+
+      // Submit if valid
+      if (isValid) {
+        this.submit();
+      }
+    });
+  </script>
 </body>
 
 </html>
