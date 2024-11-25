@@ -26,12 +26,20 @@ var (
 	db *sql.DB
 )
 
+type BoolInt int
+
+const (
+	False BoolInt = 0
+	True  BoolInt = 1
+)
+
 // user modal to take and send data to users table
 type User struct {
 	ID        int
 	Username  string
 	Password  string
 	SessionID string
+	IsAdmin   BoolInt
 }
 
 // init function to establish db connection
@@ -59,9 +67,12 @@ func main() {
 	mux.HandleFunc("/", rootHandler)
 	mux.HandleFunc("/login", loginHandler)
 	mux.HandleFunc("/logout", logoutHandler)
-	mux.HandleFunc("/admin", adminHandler)
+	// mux.HandleFunc("/admin", adminHandler)
 	mux.HandleFunc("/signup-page", signupPageHandler)
 	mux.HandleFunc("/signup", signupHandler)
+	mux.HandleFunc("/addUser", addUserHandler)
+	mux.HandleFunc("/updateUser", updateUserHandler)
+	mux.HandleFunc("/deleteUser", deleteUserHandler)
 
 	log.Print("Listenting on: 4444...")
 	err := http.ListenAndServe(":4444", mux)
@@ -73,7 +84,8 @@ func main() {
 // ////////////////////
 // Handler functions
 // ////////////////////
-func adminHandler(w http.ResponseWriter, r *http.Request) {
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
 	// Ignore favicon requests
 	if r.URL.Path == "/favicon.ico" {
 		return
@@ -82,23 +94,7 @@ func adminHandler(w http.ResponseWriter, r *http.Request) {
 	// Disable caching for dynamic content
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
-
-	users := getUsers(db)
-	data := struct {
-		Users []User
-	}{
-		Users: users,
-	}
-
-	tmpl := template.Must(template.ParseFiles("./static/admin.html"))
-	tmpl.Execute(w, data)
-}
-func rootHandler(w http.ResponseWriter, r *http.Request) {
-	// Disable caching for dynamic content
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
+	w.Header().Set("Expires", "-1")
 
 	cookie, err := readCookie(r, "SessionID")
 	if cookie == nil {
@@ -111,24 +107,18 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	value, err := crypt.Decrypt(cookie.Value)
-	fmt.Printf("cookie sessionID: %s ", value)
+	fmt.Printf("cookie sessionID: %s \n", value)
 	if err != nil {
 		log.Printf("%v", fmt.Errorf("error while decrypting value from cookie.Value: %w", err))
 		http.ServeFile(w, r, "./static/index.html")
 		return
 	}
-	fmt.Println("cookie value decrpted from /: ", value)
-	if checkSession(value) {
-		fmt.Println("check session_id from db: session is valid ")
-		home, err := os.ReadFile("./static/home.html")
-		if err != nil {
-			log.Println("error while reading home.html: ", err)
-			http.Error(w, "error while reading home file", http.StatusInternalServerError)
-			return
-		}
-		user := getUserBySessionID(cookie.Value)
-		log.Printf("successfully served home page for user: %v\n", user.Username)
-		w.Write([]byte(home))
+	user := getUserBySessionID(value)
+	if checkSession(value) && user.IsAdmin == False {
+		homePageServer(w, cookie)
+		return
+	} else if checkSession(value) && user.IsAdmin == True {
+		adminPageServer(w)
 		return
 	} else {
 		fmt.Println("sessionid is not in  db.")
@@ -137,10 +127,6 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	// Disable caching for dynamic content
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
 
 	//login handler logic
 	var users = getUsers(db)
@@ -150,11 +136,10 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	rUser.Username = strings.ToLower(rUser.Username)
 	var flag bool
 	for _, user := range users {
-		fmt.Printf("user: %s pw: %s sid: %s\n", user.Username, user.Password, user.SessionID)
 		if rUser.Username == user.Username && rUser.Password == user.Password {
 			flag = true
 			SessionID = getCustomID()
-			saveSessionId(user, SessionID)
+			saveSessionID(user, SessionID)
 		} else if rUser.Username == user.Username && rUser.Password != user.Password {
 			http.Error(w, "entered incorrect password", http.StatusBadRequest)
 		}
@@ -171,12 +156,29 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
+	// Ignore favicon requests
+	if r.URL.Path == "/favicon.ico" {
+		return
+	}
+
+	// Disable caching for dynamic content
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "-1")
+
 	cookie, err := readCookie(r, "SessionID")
 	if err == ErrInvalidValue {
 		http.Error(w, "cookie has been alterned/changed without permission.", http.StatusBadRequest)
 	}
 	cookie.MaxAge = -1
 	http.SetCookie(w, cookie)
+	// clear the session ID from database
+	if oldCookie, err := r.Cookie("SessionID"); err == nil {
+		value, _ := crypt.Decrypt(oldCookie.Value)
+		if user := getUserBySessionID(value); user.Username != "" {
+			saveSessionID(user, value)
+		}
+	}
 	log.Println("deleted cookie:", cookie)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -203,7 +205,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
 	SessionID := getCustomID()
 	user = getUser(user.Username)
-	saveSessionId(user, SessionID)
+	saveSessionID(user, SessionID)
 	cryptedID, err := crypt.Encrypt(SessionID)
 	if err != nil {
 		log.Println("error while converting SessionID to encryptedID to write on cookie in sign-up.", err)
@@ -218,7 +220,7 @@ func signupPageHandler(w http.ResponseWriter, r *http.Request) {
 	// Disable caching for dynamic content
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
+	w.Header().Set("Expires", "-1")
 	cookie, err := readCookie(r, "SessionID")
 	if err != nil {
 		log.Println(err)
@@ -229,6 +231,63 @@ func signupPageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, "./static/signup.html")
+}
+
+func addUserHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	user.Username, user.Password = r.FormValue("username"), r.FormValue("password")
+	query := "insert into users (username, password) values (?, ?);"
+	_, err := db.Exec(query, user.Username, user.Password)
+	if err != nil {
+		log.Println(err)
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func updateUserHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	user.Username, user.Password = r.FormValue("username"), r.FormValue("password")
+	fmt.Printf("updating username: %s password: %s\n", user.Username, user.Password)
+	query := "update users set username = ?, password = ? where username = ?;"
+	result, err := db.Exec(query, user.Username, user.Password, user.Username)
+	if err != nil {
+		log.Println(err)
+	}
+	k, err := result.RowsAffected()
+	if err != nil {
+		log.Println(err)
+	}
+	if k > 1 {
+		log.Println("more than 1 number of rows are affected.")
+	} else if k == 0 {
+		log.Println("update user did not happen.")
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+
+}
+
+func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	user.Username = r.FormValue("username")
+	var is_admin = r.FormValue("is_admin")
+	user.IsAdmin = stringToBoolInt(is_admin)
+	if user.IsAdmin == True {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	query := "delete from users where username = ?;"
+	result, err := db.Exec(query, user.Username)
+	if err != nil {
+		log.Println(err)
+	}
+	k, err := result.RowsAffected()
+	if k > 1 {
+		log.Println("more than 1 number of rows are affected.")
+	} else if k == 0 {
+		log.Println("delete user did not happen.")
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // //////////////
@@ -245,7 +304,7 @@ func getUsers(db *sql.DB) []User {
 
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID)
+		err := rows.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID, &user.IsAdmin)
 		if err != nil {
 			log.Println(err)
 			break
@@ -255,19 +314,24 @@ func getUsers(db *sql.DB) []User {
 	return users
 }
 
+// func(username string) get User from db table users;
 func getUser(username string) User {
 	var user User
 	query := "select * from users where username = ?;"
 	row := db.QueryRow(query, username)
-	row.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID)
+	row.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID, &user.IsAdmin)
 	return user
 }
 
+// func(sessionID string) gives back populated User if sessionID exists
 func getUserBySessionID(SessionID string) User {
 	var user User
 	query := "select * from users where session_id = ?;"
 	row := db.QueryRow(query, SessionID)
-	row.Scan(&user, &user.Username, &user.Password, &user.SessionID)
+	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID, &user.IsAdmin)
+	if err == sql.ErrNoRows {
+		return User{}
+	}
 	return user
 }
 
@@ -275,7 +339,7 @@ func getUserBySessionID(SessionID string) User {
 // Session functions
 // //////////////////
 
-// SessionID authenticating function
+// SessionID authenticating function(takes in sessionID string)
 func checkSession(SessionID string) bool {
 	var users []User
 	var ids []string
@@ -293,8 +357,8 @@ func checkSession(SessionID string) bool {
 	return check
 }
 
-// save SessionID to database after being created on login/signup
-func saveSessionId(user User, SessionID string) {
+// save SessionID to database after being created on login/signup using username
+func saveSessionID(user User, SessionID string) {
 	query := "update users set session_id = ? where username = ?;"
 	result, err := db.Exec(query, SessionID, user.Username)
 	k, errRows := result.RowsAffected()
@@ -344,9 +408,51 @@ func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 	return cookie, nil
 }
 
+/////////////////////////////
+// Handler helper functions
+/////////////////////////////
+
+func adminPageServer(w http.ResponseWriter) {
+	users := getUsers(db)
+	data := struct {
+		Users []User
+	}{
+		Users: users,
+	}
+
+	tmpl := template.Must(template.ParseFiles("./static/admin.html"))
+	tmpl.Execute(w, data)
+	return
+}
+
+func homePageServer(w http.ResponseWriter, cookie *http.Cookie) {
+	home, err := os.ReadFile("./static/home.html")
+	if err != nil {
+		log.Println("error while reading home.html: ", err)
+		http.Error(w, "error while reading home file", http.StatusInternalServerError)
+		return
+	}
+	user := getUserBySessionID(cookie.Value)
+	log.Printf("successfully served home page for user: %v\n", user.Username)
+	w.Write([]byte(home))
+}
+
+////////////////////////////////
+// other functions
+////////////////////////////////
+
 // Random SessionID generator
 func getCustomID() string {
 	currentTime := time.Now().UnixNano()
 	uniqueID := uuid.New()
 	return fmt.Sprintf("%d-%s", currentTime, uniqueID)
+}
+
+// convert string to BoolInt
+func stringToBoolInt(s string) BoolInt {
+	s = strings.ToLower(s)
+	if s == "true" || s == "1" {
+		return True
+	}
+	return False
 }

@@ -1,0 +1,38 @@
+package main
+
+import (
+	"fmt"
+	"github.com/google/uuid"
+	"math/rand"
+	"time"
+)
+
+func main() {
+	start := time.Now()
+	m := make(map[string]map[string]int)
+	for i := 0; i < 100000; i++ {
+		id := uuid.New().String()
+		m[id] = make(map[string]int)
+		for i := 0; i < 1000; i++ {
+			m[id][uuid.New().String()] = rand.Intn(10000)
+		}
+	}
+	end := time.Since(start)
+
+	s2 := time.Now()
+	m2 := make(map[string]int)
+	for k, v := range m {
+		for _, vv := range v {
+			m2[k] += vv
+		}
+	}
+	e2 := time.Since(s2)
+
+	for k, v := range m2 {
+		fmt.Printf("k: %s v: %d\n", k, v)
+	}
+
+	fmt.Printf("time taken to make the map: %s\n", end.String())
+	fmt.Printf("time taken to process it: %s\n", e2.String())
+
+}

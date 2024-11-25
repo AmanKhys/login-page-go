@@ -10,6 +10,7 @@
 </head>
 
 <body class="bg-light">
+  hii
   <div class="container mt-5">
     <div class="card shadow">
       <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
@@ -23,52 +24,51 @@
               <tr>
                 <th>ID</th>
                 <th>Username</th>
-                <th>Password</th>
+                <th>Session ID</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              <form action="/addUser" method="post">
-                <tr id="createForm" style="display: none;">
+              <!-- For the create user form -->
+              <tr id="createForm" style="display: none;">
+                <form action="/api/users" method="POST">
                   <td>#</td>
-                  <td><input type="text" class="form-control" placeholder="Username" name="username"></td>
-                  <td><input type="password" class="form-control" placeholder="Password" name="password"></td>
+                  <td><input type="text" name="username" class="form-control" placeholder="Username"></td>
+                  <td><input type="password" name="password" class="form-control" placeholder="Password"></td>
                   <td>
-                    <button class="btn btn-success btn-sm me-2" type="submit">Save</button>
-                    <button class="btn btn-secondary btn-sm" onclick="toggleCreateForm()">Cancel</button>
+                    <button type="submit" class="btn btn-success btn-sm me-2">Save</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="toggleCreateForm()">Cancel</button>
                   </td>
-                </tr>
-              </form>
+                </form>
+              </tr>
               {{range $index, $user := .Users}}
               <tr id="row-{{$user.ID}}">
                 <td>{{$user.ID}}</td>
                 <td class="view-mode">{{$user.Username}}</td>
                 <td class="view-mode"><span class="badge bg-secondary">{{$user.Password}}</span></td>
-                <td class="view-mode ">
-                  <button class="btn btn-warning btn-sm me-2" onclick="toggleEditMode({{$user.ID}})"
-                    type=button>Update</button>
-                  <form action="/deleteUser" method="post" style="display:inline-block;">
-                    <input type="hidden" value="delete" name="_method">
-                    <input type="hidden" value="{{$user.Username}}" name="username">
-                    <input type="hidden" value="{{$user.IsAdmin}}" name="is_admin">
-                    <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                <td class="view-mode">
+                  <button class="btn btn-warning btn-sm me-2" onclick="toggleEditMode({{$user.ID}})">Update</button>
+                  <!-- For delete button -->
+                  <form action="/api/users/{{$user.ID}}" method="POST"
+                    onsubmit="return confirm('Are you sure you want to delete this user?');" style="display: inline;">
+                    <input type="hidden" name="_method" value="DELETE">
+                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
                   </form>
                 </td>
                 <!-- Edit mode fields (hidden by default) -->
-                <form action="/updateUser" method="post">
-                  <td class="edit-mode" style="display: none;">
-                    <input type="text" class="form-control" value="{{$user.Username}}" name="username">
-                  </td>
-                  <td class="edit-mode" style="display: none;">
-                    <input type="text" class="form-control" value="{{$user.Password}}" name="password">
-                  </td>
-                  <td class="edit-mode" style="display: none;">
-                    <button class="btn btn-success btn-sm me-2" type="submit">Save</button>
-                    <button class="btn btn-secondary btn-sm" type="button">Cancel</button>
-                </form>
-                </td>
-              </tr>
-              {{end}}
+                </tr<!-- For each user row's edit mode -->
+                <td class="edit-mode" style="display: none;" colspan="4">
+                  <form action="/api/users/{{$user.ID}}" method="POST">
+                    <div class="d-flex gap-2">
+                      <input type="text" name="username" class="form-control" value="{{$user.Username}}">
+                      <input type="password" name="password" class="form-control" value="{{$user.Password}}">
+                      <button type="submit" class="btn btn-success btn-sm">Save</button>
+                      <button type="button" class="btn btn-secondary btn-sm"
+                        onclick="cancelEdit({{$user.ID}})">Cancel</button>
+                    </div>
+                  </form>
+                </td>>
+                {{end}}
             </tbody>
           </table>
         </div>
@@ -100,6 +100,10 @@
       editModes.forEach(el => el.style.display = 'none');
     }
 
+    function saveChanges(id) {
+      // Add your save logic here
+      cancelEdit(id);
+    }
   </script>
 </body>
 
