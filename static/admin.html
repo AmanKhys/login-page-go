@@ -1,4 +1,3 @@
-<!-- static/admin.html -->
 <!DOCTYPE html>
 <html lang="en">
 
@@ -10,6 +9,14 @@
 </head>
 
 <body class="bg-light">
+  <div class="bg-dark text-white text-center ">
+    <div class="container py-3 d-flex justify-content-between align-items-center px-2">
+      <span class="ml-3">You're on the Admin Page</span>
+      <a href="/logout" class="ml-auto">
+        <button class="btn btn-danger">Logout</button>
+      </a>
+    </div>
+  </div>
   <div class="container mt-5">
     <div class="card shadow">
       <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
@@ -17,8 +24,13 @@
         <button class="btn btn-success" onclick="toggleCreateForm()">Create User</button>
       </div>
       <div class="card-body">
+        <!-- Search Field -->
+        <div class="mb-3">
+          <input type="text" id="searchInput" class="form-control" placeholder="Search for users..."
+            onkeyup="searchTable()">
+        </div>
         <div class="table-responsive">
-          <table class="table table-striped table-hover align-middle">
+          <table class="table table-striped table-hover align-middle" id="userTable">
             <thead class="table-dark">
               <tr>
                 <th>ID</th>
@@ -29,13 +41,21 @@
             </thead>
             <tbody>
               <form action="/addUser" method="post">
-                <tr id="createForm" style="display: none;">
+                <tr id="createForm" class="d-none">
                   <td>#</td>
-                  <td><input type="text" class="form-control" placeholder="Username" name="username"></td>
-                  <td><input type="password" class="form-control" placeholder="Password" name="password"></td>
+                  <td>
+                    <input type="text" class="form-control" placeholder="Username" name="username" required
+                      pattern="^(?!\s)(?!.*\s$).{3,}$"
+                      title="Username must be at least 3 characters and contain no whitespaces.">
+                  </td>
+                  <td>
+                    <input type="password" class="form-control" placeholder="Password" name="password" required
+                      pattern="^(?!\s)(?!.*\s$).{6,}$"
+                      title="Password must be at least 6 characters and contain no whitespaces.">
+                  </td>
                   <td>
                     <button class="btn btn-success btn-sm me-2" type="submit">Save</button>
-                    <button class="btn btn-secondary btn-sm" onclick="toggleCreateForm()">Cancel</button>
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="toggleCreateForm()">Cancel</button>
                   </td>
                 </tr>
               </form>
@@ -44,10 +64,10 @@
                 <td>{{$user.ID}}</td>
                 <td class="view-mode">{{$user.Username}}</td>
                 <td class="view-mode"><span class="badge bg-secondary">{{$user.Password}}</span></td>
-                <td class="view-mode ">
+                <td class="view-mode">
                   <button class="btn btn-warning btn-sm me-2" onclick="toggleEditMode({{$user.ID}})"
-                    type=button>Update</button>
-                  <form action="/deleteUser" method="post" style="display:inline-block;">
+                    type="button">Update</button>
+                  <form action="/deleteUser" method="post" class="d-inline">
                     <input type="hidden" value="delete" name="_method">
                     <input type="hidden" value="{{$user.Username}}" name="username">
                     <input type="hidden" value="{{$user.IsAdmin}}" name="is_admin">
@@ -56,17 +76,23 @@
                 </td>
                 <!-- Edit mode fields (hidden by default) -->
                 <form action="/updateUser" method="post">
-                  <td class="edit-mode" style="display: none;">
-                    <input type="text" class="form-control" value="{{$user.Username}}" name="username">
+                  <input type="hidden" name="id" value="{{$user.ID}}">
+                  <td class="edit-mode d-none">
+                    <input type="text" class="form-control" value="{{$user.Username}}" name="username" required
+                      pattern="^(?!\s)(?!.*\s$).{3,}$"
+                      title="Username must be at least 3 characters and contain no whitespaces.">
                   </td>
-                  <td class="edit-mode" style="display: none;">
-                    <input type="text" class="form-control" value="{{$user.Password}}" name="password">
+                  <td class="edit-mode d-none">
+                    <input type="text" class="form-control" value="{{$user.Password}}" name="password" required
+                      pattern="^(?!\s)(?!.*\s$).{6,}$"
+                      title="Password must be at least 6 characters and contain no whitespaces.">
                   </td>
-                  <td class="edit-mode" style="display: none;">
+                  <td class="edit-mode d-none">
                     <button class="btn btn-success btn-sm me-2" type="submit">Save</button>
-                    <button class="btn btn-secondary btn-sm" type="button">Cancel</button>
+                    <button class="btn btn-secondary btn-sm" type="button"
+                      onclick="cancelEdit({{$user.ID}})">Cancel</button>
+                  </td>
                 </form>
-                </td>
               </tr>
               {{end}}
             </tbody>
@@ -79,7 +105,7 @@
   <script>
     function toggleCreateForm() {
       const form = document.getElementById('createForm');
-      form.style.display = form.style.display === 'none' ? 'table-row' : 'none';
+      form.classList.toggle('d-none');
     }
 
     function toggleEditMode(id) {
@@ -87,8 +113,8 @@
       const viewModes = row.querySelectorAll('.view-mode');
       const editModes = row.querySelectorAll('.edit-mode');
 
-      viewModes.forEach(el => el.style.display = 'none');
-      editModes.forEach(el => el.style.display = 'table-cell');
+      viewModes.forEach(el => el.classList.add('d-none'));
+      editModes.forEach(el => el.classList.remove('d-none'));
     }
 
     function cancelEdit(id) {
@@ -96,8 +122,29 @@
       const viewModes = row.querySelectorAll('.view-mode');
       const editModes = row.querySelectorAll('.edit-mode');
 
-      viewModes.forEach(el => el.style.display = 'table-cell');
-      editModes.forEach(el => el.style.display = 'none');
+      viewModes.forEach(el => el.classList.remove('d-none'));
+      editModes.forEach(el => el.classList.add('d-none'));
+    }
+    function searchTable() {
+      const input = document.getElementById('searchInput');
+      const filter = input.value.toLowerCase();
+      const table = document.getElementById('userTable');
+      const tr = table.getElementsByTagName('tr');
+
+      for (let i = 1; i < tr.length; i++) {
+        const td = tr[i].getElementsByTagName('td');
+        let found = false;
+        for (let j = 0; j < td.length; j++) {
+          if (td[j]) {
+            const textValue = td[j].textContent || td[j].innerText;
+            if (textValue.toLowerCase().indexOf(filter) > -1) {
+              found = true;
+              break;
+            }
+          }
+        }
+        tr[i].style.display = found ? '' : 'none';
+      }
     }
 
   </script>

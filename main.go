@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -67,7 +68,6 @@ func main() {
 	mux.HandleFunc("/", rootHandler)
 	mux.HandleFunc("/login", loginHandler)
 	mux.HandleFunc("/logout", logoutHandler)
-	// mux.HandleFunc("/admin", adminHandler)
 	mux.HandleFunc("/signup-page", signupPageHandler)
 	mux.HandleFunc("/signup", signupHandler)
 	mux.HandleFunc("/addUser", addUserHandler)
@@ -176,7 +176,7 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 	if oldCookie, err := r.Cookie("SessionID"); err == nil {
 		value, _ := crypt.Decrypt(oldCookie.Value)
 		if user := getUserBySessionID(value); user.Username != "" {
-			saveSessionID(user, value)
+			saveSessionID(user, "-1")
 		}
 	}
 	log.Println("deleted cookie:", cookie)
@@ -236,6 +236,14 @@ func signupPageHandler(w http.ResponseWriter, r *http.Request) {
 func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
 	user.Username, user.Password = r.FormValue("username"), r.FormValue("password")
+	user.Username = strings.ToLower(user.Username)
+	fmt.Println("lowerUser:", user.Username)
+	fmt.Println("username:", r.FormValue("username"))
+	flag := checkIfUserExists(user.Username)
+	if flag {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	query := "insert into users (username, password) values (?, ?);"
 	_, err := db.Exec(query, user.Username, user.Password)
 	if err != nil {
@@ -247,9 +255,22 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
 	user.Username, user.Password = r.FormValue("username"), r.FormValue("password")
+	var err error
+	user.ID, err = strconv.Atoi(r.FormValue("id"))
+	if err != nil {
+		log.Println(err)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	user.Username = strings.ToLower(user.Username)
+	flag := checkIfUserExistsWithID(user.ID)
+	if !flag {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	fmt.Printf("updating username: %s password: %s\n", user.Username, user.Password)
-	query := "update users set username = ?, password = ? where username = ?;"
-	result, err := db.Exec(query, user.Username, user.Password, user.Username)
+	query := "update users set username = ?, password = ? where id= ?;"
+	result, err := db.Exec(query, user.Username, user.Password, user.ID)
 	if err != nil {
 		log.Println(err)
 	}
@@ -269,6 +290,7 @@ func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
 	user.Username = r.FormValue("username")
+	user.Username = strings.ToLower(user.Username)
 	var is_admin = r.FormValue("is_admin")
 	user.IsAdmin = stringToBoolInt(is_admin)
 	if user.IsAdmin == True {
@@ -276,6 +298,11 @@ func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	flag := checkIfUserExists(user.Username)
+	if !flag {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	query := "delete from users where username = ?;"
 	result, err := db.Exec(query, user.Username)
 	if err != nil {
@@ -333,6 +360,28 @@ func getUserBySessionID(SessionID string) User {
 		return User{}
 	}
 	return user
+}
+
+func checkIfUserExists(username string) bool {
+	var users []User
+	users = getUsers(db)
+	for _, user := range users {
+		if username == user.Username {
+			return true
+		}
+	}
+	return false
+}
+
+func checkIfUserExistsWithID(id int) bool {
+	var users []User
+	users = getUsers(db)
+	for _, user := range users {
+		if id == user.ID {
+			return true
+		}
+	}
+	return false
 }
 
 // //////////////////
