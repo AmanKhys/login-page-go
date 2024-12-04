@@ -63,7 +63,7 @@
               <tr id="row-{{$user.ID}}">
                 <td>{{$user.ID}}</td>
                 <td class="view-mode">{{$user.Username}}</td>
-                <td class="view-mode"><span class="badge bg-secondary">{{$user.Password}}</span></td>
+                <td class="view-mode "><span class="badge bg-secondary">{{$user.Password}}</span></td>
                 <td class="view-mode">
                   <button class="btn btn-warning btn-sm me-2" onclick="toggleEditMode({{$user.ID}})"
                     type="button">Update</button>
@@ -82,11 +82,7 @@
                       pattern="^(?!\s)(?!.*\s$).{3,}$"
                       title="Username must be at least 3 characters and contain no whitespaces.">
                   </td>
-                  <td class="edit-mode d-none">
-                    <input type="text" class="form-control" value="{{$user.Password}}" name="password" required
-                      pattern="^(?!\s)(?!.*\s$).{6,}$"
-                      title="Password must be at least 6 characters and contain no whitespaces.">
-                  </td>
+                  <td class="edit-mode d-none"><span class="badge bg-secondary">{{$user.Password}}</span></td>
                   <td class="edit-mode d-none">
                     <button class="btn btn-success btn-sm me-2" type="submit">Save</button>
                     <button class="btn btn-secondary btn-sm" type="button"
@@ -125,6 +121,7 @@
       viewModes.forEach(el => el.classList.remove('d-none'));
       editModes.forEach(el => el.classList.add('d-none'));
     }
+
     function searchTable() {
       const input = document.getElementById('searchInput');
       const filter = input.value.toLowerCase();
@@ -146,7 +143,6 @@
         tr[i].style.display = found ? '' : 'none';
       }
     }
-
   </script>
 </body>
 

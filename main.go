@@ -254,7 +254,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 
 func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
-	user.Username, user.Password = r.FormValue("username"), r.FormValue("password")
+	user.Username = r.FormValue("username")
 	var err error
 	user.ID, err = strconv.Atoi(r.FormValue("id"))
 	if err != nil {
@@ -268,9 +268,9 @@ func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	fmt.Printf("updating username: %s password: %s\n", user.Username, user.Password)
-	query := "update users set username = ?, password = ? where id= ?;"
-	result, err := db.Exec(query, user.Username, user.Password, user.ID)
+	fmt.Printf("updating username: %s \n", user.Username)
+	query := "update users set username = ? where id= ?;"
+	result, err := db.Exec(query, user.Username, user.ID)
 	if err != nil {
 		log.Println(err)
 	}
@@ -463,6 +463,7 @@ func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 
 func adminPageServer(w http.ResponseWriter) {
 	users := getUsers(db)
+	users = hashPasswords(users)
 	data := struct {
 		Users []User
 	}{
@@ -504,4 +505,16 @@ func stringToBoolInt(s string) BoolInt {
 		return True
 	}
 	return False
+}
+
+// convert the passwords in []User to be hashed passwords
+func hashPasswords(users []User) []User {
+	for i, v := range users {
+		hashedPW, err := crypt.Encrypt(v.Password)
+		if err != nil {
+			log.Println("hashing password failed")
+		}
+		users[i].Password = hashedPW
+	}
+	return users
 }
