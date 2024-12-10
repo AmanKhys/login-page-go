@@ -38,6 +38,7 @@ const (
 type User struct {
 	ID        int
 	Username  string
+	Email     string
 	Password  string
 	SessionID string
 	IsAdmin   BoolInt
@@ -186,9 +187,10 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
 	var users []User
-	user.Username, user.Password = r.FormValue("username"), r.FormValue("password")
+	user.Username, user.Email, user.Password = r.FormValue("username"), r.FormValue("email"), r.FormValue("password")
 	//  make the entered Username as case-insensitive
 	user.Username = strings.ToLower(user.Username)
+	user.Email = strings.ToLower(user.Email)
 
 	users = getUsers(db)
 	for _, v := range users {
@@ -197,8 +199,8 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, str, http.StatusBadRequest)
 		}
 	}
-	query := "insert into users (username, password) values (?, ?);"
-	_, err := db.Exec(query, user.Username, user.Password)
+	query := "insert into users (username,email, password) values (?,?, ?);"
+	_, err := db.Exec(query, user.Username, user.Email, user.Password)
 	if err != nil {
 		log.Println("error while inserting values: ", err)
 	}
@@ -235,17 +237,21 @@ func signupPageHandler(w http.ResponseWriter, r *http.Request) {
 
 func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
-	user.Username, user.Password = r.FormValue("username"), r.FormValue("password")
+	user.Username = r.FormValue("username")
+	user.Email = r.FormValue("email")
+	user.Password = r.FormValue("password")
 	user.Username = strings.ToLower(user.Username)
+	user.Email = strings.ToLower(user.Email)
 	fmt.Println("lowerUser:", user.Username)
+	fmt.Println("lowerEmail:", user.Email)
 	fmt.Println("username:", r.FormValue("username"))
 	flag := checkIfUserExists(user.Username)
 	if flag {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	query := "insert into users (username, password) values (?, ?);"
-	_, err := db.Exec(query, user.Username, user.Password)
+	query := "insert into users (username, email, password) values (?,?,?);"
+	_, err := db.Exec(query, user.Username, user.Email, user.Password)
 	if err != nil {
 		log.Println(err)
 	}
@@ -253,9 +259,32 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func updateUserHandler(w http.ResponseWriter, r *http.Request) {
+	cookie, err := readCookie(r, "SessionID")
+	if cookie == nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		log.Println(err)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	value, err := crypt.Decrypt(cookie.Value)
+	if err != nil {
+		log.Println(err)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	isAdmin := checkIfUserIsAdminFromSessionID(value)
+	// return if the user trying to update is not admin
+	if !isAdmin {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
 	var user User
 	user.Username = r.FormValue("username")
-	var err error
+	user.Email = r.FormValue("email")
 	user.ID, err = strconv.Atoi(r.FormValue("id"))
 	if err != nil {
 		log.Println(err)
@@ -263,14 +292,15 @@ func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.Username = strings.ToLower(user.Username)
+	user.Email = strings.ToLower(user.Email)
 	flag := checkIfUserExistsWithID(user.ID)
 	if !flag {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	fmt.Printf("updating username: %s \n", user.Username)
-	query := "update users set username = ? where id= ?;"
-	result, err := db.Exec(query, user.Username, user.ID)
+	query := "update users set username = ?, email = ? where id= ?;"
+	result, err := db.Exec(query, user.Username, user.Email, user.ID)
 	if err != nil {
 		log.Println(err)
 	}
@@ -284,7 +314,6 @@ func updateUserHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("update user did not happen.")
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
-
 }
 
 func deleteUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -331,7 +360,7 @@ func getUsers(db *sql.DB) []User {
 
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID, &user.IsAdmin)
+		err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.SessionID, &user.IsAdmin)
 		if err != nil {
 			log.Println(err)
 			break
@@ -346,7 +375,7 @@ func getUser(username string) User {
 	var user User
 	query := "select * from users where username = ?;"
 	row := db.QueryRow(query, username)
-	row.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID, &user.IsAdmin)
+	row.Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.SessionID, &user.IsAdmin)
 	return user
 }
 
@@ -355,7 +384,7 @@ func getUserBySessionID(SessionID string) User {
 	var user User
 	query := "select * from users where session_id = ?;"
 	row := db.QueryRow(query, SessionID)
-	err := row.Scan(&user.ID, &user.Username, &user.Password, &user.SessionID, &user.IsAdmin)
+	err := row.Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.SessionID, &user.IsAdmin)
 	if err == sql.ErrNoRows {
 		return User{}
 	}
@@ -384,6 +413,31 @@ func checkIfUserExistsWithID(id int) bool {
 	return false
 }
 
+// save SessionID to database after being created on login/signup using username
+func saveSessionID(user User, SessionID string) {
+	query := "update users set session_id = ? where username = ?;"
+	result, err := db.Exec(query, SessionID, user.Username)
+	k, errRows := result.RowsAffected()
+	if errRows != nil {
+		log.Printf("error while taking number of rows affected: %v\n", err)
+		return
+	}
+	if err != nil {
+		log.Printf("unable to update SessionID: %s for id: %d\n%v\n", SessionID, user.ID, err)
+	}
+	if k != 1 {
+		log.Println("db error: more than 1 rows affected while updating session_id;")
+	}
+}
+
+func checkIfUserIsAdminFromSessionID(sessionid string) bool {
+	var user User = getUserBySessionID(sessionid)
+	if user.IsAdmin == True {
+		return true
+	}
+	return false
+}
+
 // //////////////////
 // Session functions
 // //////////////////
@@ -404,23 +458,6 @@ func checkSession(SessionID string) bool {
 		}
 	}
 	return check
-}
-
-// save SessionID to database after being created on login/signup using username
-func saveSessionID(user User, SessionID string) {
-	query := "update users set session_id = ? where username = ?;"
-	result, err := db.Exec(query, SessionID, user.Username)
-	k, errRows := result.RowsAffected()
-	if errRows != nil {
-		log.Printf("error while taking number of rows affected: %v\n", err)
-		return
-	}
-	if err != nil {
-		log.Printf("unable to update SessionID: %s for id: %d\n%v\n", SessionID, user.ID, err)
-	}
-	if k != 1 {
-		log.Println("db error: more than 1 rows affected while updating session_id;")
-	}
 }
 
 // Write SessionID cookie function
@@ -517,4 +554,12 @@ func hashPasswords(users []User) []User {
 		users[i].Password = hashedPW
 	}
 	return users
+}
+
+func maskPasswords(users []User) []User {
+	for i := range users {
+		users[i].Password = "********"
+	}
+	return users
+
 }

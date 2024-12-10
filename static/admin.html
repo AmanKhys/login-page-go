@@ -24,7 +24,36 @@
         <button class="btn btn-success" onclick="toggleCreateForm()">Create User</button>
       </div>
       <div class="card-body">
-        <!-- Search Field -->
+        <!-- Create User Form -->
+        <div id="createForm" class="row mb-4 d-none">
+          <div class="col-12">
+            <div class="card bg-light">
+              <div class="card-body">
+                <h5 class="card-title mb-3">Create New User</h5>
+                <form action="/addUser" method="post" class="row g-3">
+                  <div class="col-md-3">
+                    <input type="text" class="form-control" placeholder="Username" name="username" required
+                      pattern="^(?!\s)(?!.*\s$).{3,}$"
+                      title="Username must be at least 3 characters and contain no whitespaces.">
+                  </div>
+                  <div class="col-md-3">
+                    <input type="email" class="form-control" placeholder="Email" name="email" required>
+                  </div>
+                  <div class="col-md-3">
+                    <input type="password" class="form-control" placeholder="Password" name="password" required
+                      pattern="^(?!\s)(?!.*\s$).{6,}$"
+                      title="Password must be at least 6 characters and contain no whitespaces.">
+                  </div>
+                  <div class="col-md-3">
+                    <button class="btn btn-success me-2" type="submit">Save</button>
+                    <button class="btn btn-secondary" type="button" onclick="toggleCreateForm()">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+          <!-- Search Field -->
         <div class="mb-3">
           <input type="text" id="searchInput" class="form-control" placeholder="Search for users..."
             onkeyup="searchTable()">
@@ -35,35 +64,16 @@
               <tr>
                 <th>ID</th>
                 <th>Username</th>
-                <th>Password</th>
+                <th>Email</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              <form action="/addUser" method="post">
-                <tr id="createForm" class="d-none">
-                  <td>#</td>
-                  <td>
-                    <input type="text" class="form-control" placeholder="Username" name="username" required
-                      pattern="^(?!\s)(?!.*\s$).{3,}$"
-                      title="Username must be at least 3 characters and contain no whitespaces.">
-                  </td>
-                  <td>
-                    <input type="password" class="form-control" placeholder="Password" name="password" required
-                      pattern="^(?!\s)(?!.*\s$).{6,}$"
-                      title="Password must be at least 6 characters and contain no whitespaces.">
-                  </td>
-                  <td>
-                    <button class="btn btn-success btn-sm me-2" type="submit">Save</button>
-                    <button class="btn btn-secondary btn-sm" type="button" onclick="toggleCreateForm()">Cancel</button>
-                  </td>
-                </tr>
-              </form>
               {{range $index, $user := .Users}}
               <tr id="row-{{$user.ID}}">
                 <td>{{$user.ID}}</td>
                 <td class="view-mode">{{$user.Username}}</td>
-                <td class="view-mode "><span class="badge bg-secondary">{{$user.Password}}</span></td>
+                <td class="view-mode">{{$user.Email}}</td>
                 <td class="view-mode">
                   <button class="btn btn-warning btn-sm me-2" onclick="toggleEditMode({{$user.ID}})"
                     type="button">Update</button>
@@ -82,7 +92,9 @@
                       pattern="^(?!\s)(?!.*\s$).{3,}$"
                       title="Username must be at least 3 characters and contain no whitespaces.">
                   </td>
-                  <td class="edit-mode d-none"><span class="badge bg-secondary">{{$user.Password}}</span></td>
+                  <td class="edit-mode d-none">
+                    <input type="email" class="form-control" value="{{$user.Email}}" name="email" required>
+                  </td>
                   <td class="edit-mode d-none">
                     <button class="btn btn-success btn-sm me-2" type="submit">Save</button>
                     <button class="btn btn-secondary btn-sm" type="button"
@@ -147,3 +159,4 @@
 </body>
 
 </html>
+
