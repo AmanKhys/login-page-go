@@ -29,10 +29,12 @@ var (
 
 type BoolInt int
 
-const (
-	False BoolInt = 0
-	True  BoolInt = 1
-)
+func printBool(b *BoolInt) {
+	fmt.Println(b)
+}
+
+const False BoolInt = 0
+const True BoolInt = 1
 
 // user modal to take and send data to users table
 type User struct {
@@ -186,11 +188,18 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 
 func signupHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
+	var err error
 	var users []User
 	user.Username, user.Email, user.Password = r.FormValue("username"), r.FormValue("email"), r.FormValue("password")
 	//  make the entered Username as case-insensitive
 	user.Username = strings.ToLower(user.Username)
 	user.Email = strings.ToLower(user.Email)
+	user.Password, err = crypt.Encrypt(user.Password)
+	if err != nil {
+		log.Println(err)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 
 	users = getUsers(db)
 	for _, v := range users {
@@ -200,7 +209,7 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	query := "insert into users (username,email, password) values (?,?, ?);"
-	_, err := db.Exec(query, user.Username, user.Email, user.Password)
+	_, err = db.Exec(query, user.Username, user.Email, user.Password)
 	if err != nil {
 		log.Println("error while inserting values: ", err)
 	}
@@ -237,21 +246,25 @@ func signupPageHandler(w http.ResponseWriter, r *http.Request) {
 
 func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user User
+	var err error
 	user.Username = r.FormValue("username")
 	user.Email = r.FormValue("email")
 	user.Password = r.FormValue("password")
 	user.Username = strings.ToLower(user.Username)
 	user.Email = strings.ToLower(user.Email)
-	fmt.Println("lowerUser:", user.Username)
-	fmt.Println("lowerEmail:", user.Email)
-	fmt.Println("username:", r.FormValue("username"))
+	user.Password, err = crypt.Encrypt(user.Password)
+	if err != nil {
+		log.Println(err)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	flag := checkIfUserExists(user.Username)
 	if flag {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	query := "insert into users (username, email, password) values (?,?,?);"
-	_, err := db.Exec(query, user.Username, user.Email, user.Password)
+	_, err = db.Exec(query, user.Username, user.Email, user.Password)
 	if err != nil {
 		log.Println(err)
 	}
@@ -500,7 +513,6 @@ func readCookie(r *http.Request, name string) (*http.Cookie, error) {
 
 func adminPageServer(w http.ResponseWriter) {
 	users := getUsers(db)
-	users = hashPasswords(users)
 	data := struct {
 		Users []User
 	}{
@@ -542,18 +554,6 @@ func stringToBoolInt(s string) BoolInt {
 		return True
 	}
 	return False
-}
-
-// convert the passwords in []User to be hashed passwords
-func hashPasswords(users []User) []User {
-	for i, v := range users {
-		hashedPW, err := crypt.Encrypt(v.Password)
-		if err != nil {
-			log.Println("hashing password failed")
-		}
-		users[i].Password = hashedPW
-	}
-	return users
 }
 
 func maskPasswords(users []User) []User {
